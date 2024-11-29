@@ -147,20 +147,21 @@ func (g *Generator) parseConstants() {
 
 				log.Debugf("valueSpec.Names: %+v, type: %+v", valueSpec.Names, valueSpec.Type)
 
-				// Check if the type matches
-				if valueSpec.Type != nil {
-					ident, ok := valueSpec.Type.(*ast.Ident)
-					if !ok || ident.Name != g.constantInfo.Type {
-						continue
-					}
+				// Ensure the constant is explicitly associated with the target type
+				if valueSpec.Type == nil {
+					continue
+				}
+				
+				ident, ok := valueSpec.Type.(*ast.Ident)
+				if !ok || ident.Name != g.constantInfo.Type {
+					continue
 				}
 
+				// Check for @group annotations
 				doc := decl.Doc
 				if doc == nil {
 					doc = valueSpec.Doc
 				}
-
-				// Parse group comment using regexp
 				if doc != nil {
 					for _, comment := range doc.List {
 						matches := groupRegex.FindStringSubmatch(comment.Text)
