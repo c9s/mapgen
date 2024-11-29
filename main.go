@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+	"unicode"
 
 	log "github.com/sirupsen/logrus"
 
@@ -53,7 +54,7 @@ func main() {
 	// Load the current package
 	pkgs, err := loadPackages(args[0])
 	if err != nil {
-		fmt.Printf("Error loading package: %v\n", err)
+		log.Errorf("Error loading package: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -84,13 +85,13 @@ func main() {
 
 		file, err := os.Create(outputFile)
 		if err != nil {
-			fmt.Printf("Error creating output file: %v\n", err)
+			log.Errorf("Error creating output file: %v\n", err)
 			os.Exit(1)
 		}
 		defer file.Close()
 
 		gen.generateCode(file)
-		fmt.Printf("Generated file: %s\n", outputFile)
+		log.Infof("Generated file: %s\n", outputFile)
 	}
 }
 
@@ -106,8 +107,17 @@ func loadPackages(pattern string) ([]*packages.Package, error) {
 	return packages.Load(cfg, pattern)
 }
 
+func toTitleCase(input string) string {
+	if len(input) == 0 {
+		return input
+	}
+	runes := []rune(input)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
 func (g *Generator) parseConstants() {
-	groupRegex := regexp.MustCompile(`^//\s*@group\s+(\S+)`) // Match lines like "// @group GroupName"
+	groupRegex := regexp.MustCompile(`^//\s*@group\s+(\S+)`) // Match lines like "// @group groupName"
 
 	for _, file := range g.pkg.Syntax {
 		ast.Inspect(file, func(n ast.Node) bool {
@@ -116,7 +126,7 @@ func (g *Generator) parseConstants() {
 				return true
 			}
 
-			log.Printf("found const decl %+v", decl)
+			log.Debugf("found const decl %+v", decl)
 
 			var currentGroup string
 
@@ -126,7 +136,7 @@ func (g *Generator) parseConstants() {
 					continue
 				}
 
-				log.Printf("valueSpec.Names: %+v, type: %+v", valueSpec.Names, valueSpec.Type)
+				log.Debugf("valueSpec.Names: %+v, type: %+v", valueSpec.Names, valueSpec.Type)
 
 				// Check if the type matches
 				if valueSpec.Type != nil {
@@ -146,7 +156,7 @@ func (g *Generator) parseConstants() {
 					for _, comment := range doc.List {
 						matches := groupRegex.FindStringSubmatch(comment.Text)
 						if len(matches) == 2 {
-							currentGroup = strings.TrimSpace(matches[1])
+							currentGroup = toTitleCase(strings.TrimSpace(matches[1]))
 						}
 					}
 				}
@@ -182,6 +192,21 @@ var All{{$group}}{{$.Type}} = map[{{$.Type}}]struct{}{
 	{{.}}: {},
 {{- end }}
 }
+
+// All{{$group}}{{$.Type}}Keys converts the {{$group}} group map of {{$.Type}} to a slice of {{$.Type}}
+func All{{$group}}{{$.Type}}Keys() []{{$.Type}} {
+	keys := make([]{{$.Type}}, 0, len(All{{$group}}{{$.Type}}))
+	for k := range All{{$group}}{{$.Type}} {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// Validate{{$group}}{{$.Type}} validates if a value belongs to the {{$group}} group of {{$.Type}}
+func Validate{{$group}}{{$.Type}}(ch {{$.Type}}) bool {
+	_, ok := All{{$group}}{{$.Type}}[ch]
+	return ok
+}
 {{- end }}
 
 var All{{.Type}}Slice = []{{.Type}}{
@@ -215,7 +240,7 @@ func Validate{{.Type}}(ch {{.Type}}) bool {
 
 	tmpl, err := template.New("code").Parse(templateText)
 	if err != nil {
-		fmt.Printf("Error parsing template: %v\n", err)
+		log.Errorf("Error parsing template: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -235,21 +260,21 @@ func Validate{{.Type}}(ch {{.Type}}) bool {
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		fmt.Printf("Error generating template: %v\n", err)
+		log.Errorf("Error generating template: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Use go/format to format the generated source code
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		fmt.Printf("Error formatting source: %v\n", err)
+		log.Errorf("Error formatting source: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Write the formatted source code to the output file
 	_, err = output.Write(formatted)
 	if err != nil {
-		fmt.Printf("Error writing to output: %v\n", err)
+		log.Errorf("Error writing to output: %v\n", err)
 		os.Exit(1)
 	}
 }
