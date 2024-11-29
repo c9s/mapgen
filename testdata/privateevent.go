@@ -1,5 +1,12 @@
 package testdata
 
+type Side int
+
+const (
+	SideBuy  Side = 1
+	SideSell Side = -1
+)
+
 type PrivateChannel string
 
 const (

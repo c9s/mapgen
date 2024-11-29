@@ -5,13 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/token"
-	"log"
 	"os"
+	"regexp"
 	"strings"
 	"text/template"
 
-	// "github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -23,9 +24,10 @@ var (
 )
 
 type ConstantInfo struct {
-	Type      string
-	Constants []string
-	Groups    map[string][]string
+	Type         string
+	Constants    []string
+	HasIntValues bool
+	Groups       map[string][]string
 }
 
 type Generator struct {
@@ -105,6 +107,8 @@ func loadPackages(pattern string) ([]*packages.Package, error) {
 }
 
 func (g *Generator) parseConstants() {
+	groupRegex := regexp.MustCompile(`^//\s*@group\s+(\S+)`) // Match lines like "// @group GroupName"
+
 	for _, file := range g.pkg.Syntax {
 		ast.Inspect(file, func(n ast.Node) bool {
 			decl, ok := n.(*ast.GenDecl)
@@ -137,12 +141,12 @@ func (g *Generator) parseConstants() {
 					doc = valueSpec.Doc
 				}
 
-				// Parse group comment
+				// Parse group comment using regexp
 				if doc != nil {
-					log.Printf("dec doc: %+v", doc)
 					for _, comment := range doc.List {
-						if strings.HasPrefix(comment.Text, "// @group ") {
-							currentGroup = strings.TrimSpace(strings.TrimPrefix(comment.Text, "// @group "))
+						matches := groupRegex.FindStringSubmatch(comment.Text)
+						if len(matches) == 2 {
+							currentGroup = strings.TrimSpace(matches[1])
 						}
 					}
 				}
@@ -180,10 +184,16 @@ var All{{$group}}{{$.Type}} = map[{{$.Type}}]struct{}{
 }
 {{- end }}
 
-// {{.Type}}Strings converts a slice of {{.Type}} to a slice of string
-func {{.Type}}Strings(slice []{{.Type}}) (out []string) {
+var All{{.Type}}Slice = []{{.Type}}{
+{{- range .Constants }}
+	{{.}},
+{{- end }}
+}
+
+// {{.Type}}Strings converts a slice of {{.Type}} to a slice of {{if .HasIntValues}}int{{else}}string{{end}}
+func {{.Type}}Strings(slice []{{.Type}}) (out []{{if .HasIntValues}}int{{else}}string{{end}}) {
 	for _, el := range slice {
-		out = append(out, string(el))
+		out = append(out, {{if .HasIntValues}}int{{else}}string{{end}}(el))
 	}
 	return out
 }
@@ -210,19 +220,36 @@ func Validate{{.Type}}(ch {{.Type}}) bool {
 	}
 
 	data := struct {
-		PkgName   string
-		Type      string
-		Constants []string
-		Groups    map[string][]string
+		PkgName      string
+		Type         string
+		Constants    []string
+		HasIntValues bool
+		Groups       map[string][]string
 	}{
-		PkgName:   g.pkg.Name,
-		Type:      g.constantInfo.Type,
-		Constants: g.constantInfo.Constants,
-		Groups:    g.constantInfo.Groups,
+		PkgName:      g.pkg.Name,
+		Type:         g.constantInfo.Type,
+		Constants:    g.constantInfo.Constants,
+		HasIntValues: g.constantInfo.HasIntValues,
+		Groups:       g.constantInfo.Groups,
 	}
 
-	if err := tmpl.Execute(output, data); err != nil {
-		fmt.Printf("Error generating code: %v\n", err)
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		fmt.Printf("Error generating template: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Use go/format to format the generated source code
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Error formatting source: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Write the formatted source code to the output file
+	_, err = output.Write(formatted)
+	if err != nil {
+		fmt.Printf("Error writing to output: %v\n", err)
 		os.Exit(1)
 	}
 }
