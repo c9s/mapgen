@@ -1,5 +1,6 @@
 package testdata
 
+//go:generate mapgen -type Side
 type Side int
 
 const (
