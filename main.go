@@ -267,7 +267,7 @@ var All{{.Type}}sSlice = []{{.Type}}{
 {{- end }}
 }
 
-func {{.Type}}Strings(slice []{{.Type}}) (out []{{if .Info.HasIntValues }}int{{else}}string{{end}}) {
+func {{.Type}}Strings(slice []{{.Type}}) (out []string) {
 	for _, el := range slice {
 		{{- if .Info.HasIntValues -}}
 		out = append(out, fmt.Sprintf("%d", el))
